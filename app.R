@@ -523,11 +523,15 @@ server <- function(input, output, session) {
     
     # Preselect all predictors except PatientID and gender
     all_cols <- names(df)
-    preselected <- setdiff(all_cols, c("PatientID", "gender"))
+    exclude_cols <- c("PatientID", "gender", "Sample", "type", "AgeCutoff")
+    preselected <- setdiff(all_cols, exclude_cols)
     
-    updatePickerInput(session, "predictors", 
-                      choices = setdiff(all_cols, "gender"), 
-                      selected = preselected)
+    updatePickerInput(
+      session = session,
+      inputId = "predictors", 
+      choices = setdiff(all_cols, exclude_cols),  # Changed this line
+      selected = preselected
+    )
     
     shinyalert("Example Loaded", 
                paste0("TCGA.tsv loaded successfully with ", nrow(df), " rows and ", ncol(df), " columns.\n\n",
@@ -557,10 +561,12 @@ server <- function(input, output, session) {
       target_unique_values(unique_vals)
       
       # Update predictor choices (exclude target)
+      current_selection <- input$predictors
       updatePickerInput(
         session,
         "predictors",
-        choices = setdiff(names(df), input$target_col)
+        choices = setdiff(names(df), input$target_col),
+        selected = current_selection
       )
       
       # Reset when target changes
@@ -1004,6 +1010,12 @@ server <- function(input, output, session) {
     
     # Replace imputed columns back into main df
     df[, cols_for_impute] <- df_imputed[, cols_for_impute]
+    message("=== After imputation, any NAs left? ===")
+    na_counts <- colSums(is.na(df[, keep_cols, drop = FALSE]))
+    if (any(na_counts > 0)) {
+      message("WARNING: Some columns still have NAs after imputation!")
+      print(na_counts[na_counts > 0])
+    }
     
     list(df = df, keep_cols = unique(keep_cols), dropped_cols = dropped_cols)
   }
@@ -1030,6 +1042,34 @@ server <- function(input, output, session) {
   # --- Apply Predictors ---
   observeEvent(input$apply_predictors, {
     req(input$target_col)
+    
+    df <- if (upload_mode() == "dual" && !is.null(processed_train())) {
+      processed_train()
+    } else if (!is.null(processed_data())) {
+      processed_data()
+    } else if (upload_mode() == "dual" && !is.null(train_raw())) {
+      train_raw()
+    } else {
+      data_raw()
+    }
+    
+    req(df)
+    
+    target_col_values <- sort(unique(na.omit(df[[input$target_col]])))
+    is_binary_01 <- all(target_col_values %in% c(0, 1)) && length(target_col_values) == 2
+    
+    if (!is_binary_01) {
+      shinyalert(
+        "Target Not Ready",
+        paste0(
+          "Target column must contain only 0 and 1 values before applying predictors.\n\n",
+          "Current unique values: ", paste(target_col_values, collapse = ", "), "\n\n",
+          "Please use 'Map Column Values' button to map your target to binary 0/1 values."
+        ),
+        type = "error"
+      )
+      return()
+    }
     
     if (is.null(input$predictors) || length(input$predictors) == 0) {
       shinyalert("No predictors selected", "Select at least one predictor before applying.", type = "warning")
@@ -1216,6 +1256,25 @@ server <- function(input, output, session) {
       return()
     }
     
+    # Validate target contains only 0 and 1
+    df <- processed_data()
+    req(df)
+    
+    target_col_values <- sort(unique(na.omit(df[[input$target_col]])))
+    is_binary_01 <- all(target_col_values %in% c(0, 1)) && length(target_col_values) == 2
+    
+    if (!is_binary_01) {
+      shinyalert(
+        "Invalid Target",
+        paste0(
+          "Target column must contain only 0 and 1 values.\n\n",
+          "Current unique values: ", paste(target_col_values, collapse = ", "), "\n\n",
+          "Please use 'Map Column Values' button to map your target to binary 0/1 values."
+        ),
+        type = "error"
+      )
+      return()
+    }
     
     
     disable("run")
@@ -2226,6 +2285,16 @@ server <- function(input, output, session) {
     
     X_train <- df[, features, drop = FALSE]
     y_train <- df[[target_col]]
+   
+    X_train[] <- lapply(X_train, function(col) {
+      if (is.factor(col)) {
+        as.numeric(col)
+      } else if (is.character(col)) {
+        as.numeric(as.factor(col))
+      } else {
+        as.numeric(col)
+      }
+    })
     
     
     # Check if we have enough data left

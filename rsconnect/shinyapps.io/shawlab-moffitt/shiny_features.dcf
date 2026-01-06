@@ -5,7 +5,7 @@ account: shawlab-moffitt
 server: shinyapps.io
 hostUrl: https://api.shinyapps.io/v1
 appId: 16366415
-bundleId: 11403802
+bundleId: 11405093
 url: https://shawlab-moffitt.shinyapps.io/shiny_features/
 version: 1
 asMultiple: FALSE
