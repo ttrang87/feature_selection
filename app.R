@@ -1640,17 +1640,19 @@ server <- function(input, output, session) {
   
   output$rf_plot <- renderPlot({
     req(rf_model_obj())
-    n_features <- length(rf_model_obj()$importance)
-    plot_height <- max(600, n_features * 15)  # Dynamic height
+    
+    # Get importance values and limit to top 20
+    importance_vals <- rf_model_obj()$importance
+    top_20_idx <- order(importance_vals, decreasing = TRUE)[1:min(20, length(importance_vals))]
+    
+    # Create a modified model object with only top 20 features for plotting
+    rf_plot <- rf_model_obj()
+    rf_plot$importance <- importance_vals[top_20_idx]
+    rf_plot$xvar.names <- rf_model_obj()$xvar.names[top_20_idx]
     
     par(mar = c(5, 10, 4, 2))
-    plot.rfsrc(rf_model_obj(), cex.axis = 0.7, cex.lab = 0.8)
-  }, height = function() {
-    req(rf_model_obj())
-    n_features <- length(rf_model_obj()$importance)
-    max(600, n_features * 15)
-  }, width = 800)
-
+    plot.rfsrc(rf_plot, cex.axis = 0.7, cex.lab = 0.8)
+  }, height = 600, width = 800)
   
   
   output$shap_plot <- renderPlot({
