@@ -139,10 +139,21 @@ ui <- fluidPage(
                    condition = "input.upload_mode == 'dual'",
                    tabsetPanel(
                      id = "data_preview_tabs",
-                     tabPanel("Training Data", br(), withSpinner(DTOutput("train_preview"), type = 6)),
-                     tabPanel("Test Data", br(), withSpinner(DTOutput("test_preview"), type = 6))
+                     tabPanel("Processed Training Data", 
+                              br(), 
+                              actionButton("recover_data_dual", "Recover Original Data", 
+                                           class = "btn btn-warning", 
+                                           style = "margin-bottom: 10px;"),
+                              withSpinner(DTOutput("train_preview"), type = 6)),
+                     tabPanel("Uploaded Training Data", 
+                              br(), 
+                              withSpinner(DTOutput("uploaded_train_preview"), type = 6)),
+                     tabPanel("Test Data", 
+                              br(), 
+                              withSpinner(DTOutput("test_preview"), type = 6))
                    )
                  ),
+            
                  conditionalPanel(
                    condition = "input.upload_mode == 'single'",
                    tabsetPanel(
@@ -642,6 +653,45 @@ server <- function(input, output, session) {
     
     shinyalert("Data Recovered", 
                "Data has been reset to original upload. All processing cleared.", 
+               type = "success")
+  })
+  
+  # Uploaded training data preview for dual mode (reuses same data source)
+  output$uploaded_train_preview <- renderDT({
+    req(upload_mode() == "dual")
+    # Reuse the same data_uploaded_original() that single mode uses
+    req(data_uploaded_original())
+    datatable(
+      data_uploaded_original(),
+      options = list(
+        scrollX = TRUE, 
+        pageLength = 10,
+        lengthMenu = c(10,25,50,100,nrow(data_uploaded_original()))
+      )
+    )
+  })
+  
+  # Recover data for dual mode (shares logic with single mode)
+  observeEvent(input$recover_data_dual, {
+    req(data_uploaded_original(), upload_mode() == "dual")
+    
+    original_train <- data_uploaded_original()
+    
+    # These are the same operations as single mode
+    train_raw(original_train)
+    processed_train(original_train)
+    data_raw(original_train)
+    processed_data(original_train)
+    data_reactive(original_train)
+    target_mapping(NULL)
+    applied_predictors(character(0))
+    
+    updatePickerInput(session, "predictors", 
+                      choices = setdiff(names(original_train), input$target_col), 
+                      selected = character(0))
+    
+    shinyalert("Training Data Recovered", 
+               "Training data has been reset to original upload. All processing cleared.", 
                type = "success")
   })
   
