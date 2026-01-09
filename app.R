@@ -80,8 +80,46 @@ ui <- fluidPage(
                    )
                  ),
                  
+                 br(),
+                 wellPanel(
+                   style = "background-color: #f9f9f9; border: 1px solid #ddd;",
+                   h5(icon("cog"), "Preprocessing Settings"),
+                   
+                   sliderInput(
+                     "na_threshold",
+                     "NA Dropping Threshold:",
+                     min = 0,
+                     max = 1,
+                     value = 0.7,
+                     step = 0.05,
+                     post = "%"
+                   ),
+                   helpText("Columns with NA proportion above this threshold will be dropped."),
+                   
+                   selectInput(
+                     "impute_method",
+                     "Imputation Method:",
+                     choices = c(
+                       "MICE (CART)" = "mice",
+                       "Mean" = "mean",
+                       "Median" = "median",
+                       "Specific Value" = "value"
+                     ),
+                     selected = "mice"
+                   ),
+                   
+                   conditionalPanel(
+                     condition = "input.impute_method == 'value'",
+                     numericInput(
+                       "impute_value",
+                       "Specific Value to Impute:",
+                       value = 0,
+                       step = 0.1
+                     )
+                   )
+                 ),
             
-                 actionButton("apply_predictors", "Apply Predictors", 
+                 actionButton("apply_predictors", "Pre-process Data", 
                               class = "btn btn-secondary", 
                               style = "width: 100%;"),
                  br(), br(),
@@ -103,12 +141,22 @@ ui <- fluidPage(
                      id = "data_preview_tabs",
                      tabPanel("Training Data", br(), withSpinner(DTOutput("train_preview"), type = 6)),
                      tabPanel("Test Data", br(), withSpinner(DTOutput("test_preview"), type = 6))
-                     
                    )
                  ),
                  conditionalPanel(
                    condition = "input.upload_mode == 'single'",
-                   withSpinner(DTOutput("data_preview"), type = 6)
+                   tabsetPanel(
+                     id = "single_data_tabs",
+                     tabPanel("Processed Data", 
+                              br(), 
+                              actionButton("recover_data", "Recover Original Data", 
+                                           class = "btn btn-warning", 
+                                           style = "margin-bottom: 10px;"),
+                              withSpinner(DTOutput("data_preview"), type = 6)),
+                     tabPanel("Uploaded Data", 
+                              br(), 
+                              withSpinner(DTOutput("uploaded_data_preview"), type = 6))
+                   )
                  ),
                  br(),
                  uiOutput("nav_buttons")
@@ -351,6 +399,7 @@ ui <- fluidPage(
 server <- function(input, output, session) {
   # --- Store data and mappings ---
   data_raw <- reactiveVal(NULL)
+  data_uploaded_original <- reactiveVal(NULL)
   train_raw <- reactiveVal(NULL)
   test_raw <- reactiveVal(NULL)
   processed_data <- reactiveVal(NULL)
@@ -364,7 +413,7 @@ server <- function(input, output, session) {
   data_reactive <- reactiveVal(NULL)
   
   lasso_trigger <- reactiveVal(0)
-  
+  data_preview_trigger <- reactiveVal(0)
   
   # Initialize column mapper module
   mapper <- columnMapperServer("mapper", data_reactive)
@@ -474,6 +523,7 @@ server <- function(input, output, session) {
     logi_cols <- sapply(df, is.logical)
     if (any(logi_cols)) df[, logi_cols] <- lapply(df[, logi_cols, drop = FALSE], as.integer)
     
+    data_uploaded_original(df) 
     data_raw(df)
     processed_data(df)
     data_reactive(df)
@@ -502,6 +552,7 @@ server <- function(input, output, session) {
     logi_cols <- sapply(df, is.logical)
     if (any(logi_cols)) df[, logi_cols] <- lapply(df[, logi_cols, drop = FALSE], as.integer)
     
+    data_uploaded_original(df) 
     data_raw(df)
     processed_data(df)
     data_reactive(df)
@@ -536,10 +587,63 @@ server <- function(input, output, session) {
     shinyalert("Example Loaded", 
                paste0("TCGA.tsv loaded successfully with ", nrow(df), " rows and ", ncol(df), " columns.\n\n",
                       "Target preselected: gender\n",
-                      "Predictors preselected (excluding PatientID)"), 
+                      "Predictors preselected"), 
                type = "success", timer = 3000)
   })
   
+  #Orginal data tab
+  output$uploaded_data_preview <- renderDT({
+    req(data_uploaded_original())
+    datatable(
+      data_uploaded_original(),
+      options = list(
+        scrollX = TRUE, 
+        pageLength = 10,
+        lengthMenu = c(10,25,50,100,nrow(data_uploaded_original()))
+      )
+    )
+  })
+  
+  #Processed data tab
+  output$data_preview <- renderDT({
+    # Force dependency on trigger
+    data_preview_trigger()
+    
+    df <- processed_data()
+    req(df)
+    
+    datatable(
+      df,
+      options = list(
+        scrollX = TRUE, 
+        pageLength = 10,
+        lengthMenu = c(10, 25, 50, 100, nrow(df))
+      )
+    )
+  })
+  
+  
+  # Reset to original
+  observeEvent(input$recover_data, {
+    req(data_uploaded_original())
+    
+    original_df <- data_uploaded_original()
+    
+    data_raw(original_df)
+    processed_data(original_df)
+    data_reactive(original_df)
+    target_mapping(NULL)
+    applied_predictors(character(0))
+    
+    # Reset UI selections
+    updatePickerInput(session, "predictors", 
+                      choices = setdiff(names(original_df), input$target_col), 
+                      selected = character(0))
+    
+    shinyalert("Data Recovered", 
+               "Data has been reset to original upload. All processing cleared.", 
+               type = "success")
+  })
   
   # --- When target column selected, show unique values ---
   observeEvent(input$target_col, {
@@ -860,6 +964,7 @@ server <- function(input, output, session) {
     logi_cols <- sapply(df, is.logical)
     if (any(logi_cols)) df[, logi_cols] <- lapply(df[, logi_cols, drop = FALSE], as.integer)
     
+    data_uploaded_original(df)
     train_raw(df)
     processed_train(df)
     data_reactive(df)
@@ -925,6 +1030,7 @@ server <- function(input, output, session) {
     actual_ratio <- nrow(train_df) / (nrow(train_df) + nrow(test_df))
     
     # Set raw data references WITHOUT mapping yet
+    data_uploaded_original(train_df)
     data_raw(train_df)
     
     # Update UI - NOW ACCEPT ALL COLUMNS
@@ -962,7 +1068,7 @@ server <- function(input, output, session) {
     }
   })
   
-  process_dataset <- function(df, predictors, target_col = NULL, na_threshold = 0.7) {
+  process_dataset <- function(df, predictors, target_col = NULL, na_threshold = 0.7, impute_method = "mice", impute_value = 0) {
     keep_cols <- c()
     dropped_cols <- c()
     
@@ -989,7 +1095,7 @@ server <- function(input, output, session) {
       if (is.numeric(col)) {
         na_frac <- sum(is.na(col)) / length(col)
         if (na_frac > na_threshold) {
-          cat("Dropping continuous feature due to high NA:", col_name, "\n")
+          cat("Dropping continuous feature due to high NA:", col_name, "( NA proportion:", na_frac, ")\n")
           dropped_cols <- c(dropped_cols, col_name)
           next
         }
@@ -997,19 +1103,50 @@ server <- function(input, output, session) {
       }
     }
     
-    # --- Run mice once on all selected predictors (+ target if provided)
+    # --- Imputation based on selected method
     cols_for_impute <- unique(c(keep_cols, target_col))
     cols_for_impute <- cols_for_impute[cols_for_impute %in% names(df)]
     
-    df_imputed <- tryCatch({
-      complete(mice(df[, cols_for_impute, drop = FALSE], method = "cart", m = 1, printFlag = FALSE))
-    }, error = function(e) {
-      cat("MICE failed:", conditionMessage(e), "\n")
-      return(df)
-    })
+    if (impute_method == "mice") {
+      # Use MICE (existing method)
+      df_imputed <- tryCatch({
+        complete(mice(df[, cols_for_impute, drop = FALSE], method = "cart", m = 1, printFlag = FALSE))
+      }, error = function(e) {
+        cat("MICE failed:", conditionMessage(e), "\n")
+        return(df[, cols_for_impute, drop = FALSE])
+      })
+      df[, cols_for_impute] <- df_imputed
+      
+    } else if (impute_method == "mean") {
+      # Use mean imputation
+      for (col_name in cols_for_impute) {
+        if (is.numeric(df[[col_name]]) && sum(is.na(df[[col_name]])) > 0) {
+          mean_val <- mean(df[[col_name]], na.rm = TRUE)
+          df[[col_name]][is.na(df[[col_name]])] <- mean_val
+          cat("Imputed", col_name, "with mean:", mean_val, "\n")
+        }
+      }
+      
+    } else if (impute_method == "median") {
+      # Use median imputation
+      for (col_name in cols_for_impute) {
+        if (is.numeric(df[[col_name]]) && sum(is.na(df[[col_name]])) > 0) {
+          median_val <- median(df[[col_name]], na.rm = TRUE)
+          df[[col_name]][is.na(df[[col_name]])] <- median_val
+          cat("Imputed", col_name, "with median:", median_val, "\n")
+        }
+      }
+      
+    } else if (impute_method == "value") {
+      # Use specific value
+      for (col_name in cols_for_impute) {
+        if (is.numeric(df[[col_name]]) && sum(is.na(df[[col_name]])) > 0) {
+          df[[col_name]][is.na(df[[col_name]])] <- impute_value
+          cat("Imputed", col_name, "with value:", impute_value, "\n")
+        }
+      }
+    }
     
-    # Replace imputed columns back into main df
-    df[, cols_for_impute] <- df_imputed[, cols_for_impute]
     message("=== After imputation, any NAs left? ===")
     na_counts <- colSums(is.na(df[, keep_cols, drop = FALSE]))
     if (any(na_counts > 0)) {
@@ -1081,82 +1218,62 @@ server <- function(input, output, session) {
     
     pred_cols <- input$predictors
     target_col <- input$target_col
-    na_threshold <- 0.6
     
     # --- Process each uploaded file independently ---
     if (upload_mode() == "dual" && !is.null(processed_train()) && !is.null(processed_test())) {
-      # Get the MAPPED data (not raw)
       train_df <- processed_train()
       test_df  <- processed_test()
       
-      result_train <- process_dataset(train_df, predictors = pred_cols, target_col = target_col, na_threshold = na_threshold)
-      result_test  <- process_dataset(test_df,  predictors = pred_cols, target_col = target_col, na_threshold = na_threshold)
+      result_train <- process_dataset(train_df, predictors = pred_cols, target_col = target_col, 
+                                      na_threshold = input$na_threshold, 
+                                      impute_method = input$impute_method,
+                                      impute_value = input$impute_value)
+      result_test  <- process_dataset(test_df,  predictors = pred_cols, target_col = target_col, 
+                                      na_threshold = input$na_threshold,
+                                      impute_method = input$impute_method,
+                                      impute_value = input$impute_value)
       
-      processed_train(result_train$df)
-      processed_test(result_test$df)
-      processed_data(result_train$df)
+      cols_to_keep <- c(target_col, result_train$keep_cols)
+      processed_train(result_train$df[, cols_to_keep, drop = FALSE])
+      processed_test(result_test$df[, cols_to_keep, drop = FALSE])
+      processed_data(result_train$df[, cols_to_keep, drop = FALSE])
       applied_predictors(result_train$keep_cols)
+      
+      # Update available choices based on processed data
+      available_cols <- setdiff(names(result_train$df), target_col)
       
     } else if (!is.null(processed_data())) {
       df <- processed_data()
       
-      keep_cols <- c()
-      for (col_name in pred_cols) {
-        if (col_name %in% names(df)) {
-          na_frac <- sum(is.na(df[[col_name]])) / nrow(df)
-          if (na_frac < 0.5) {
-            keep_cols <- c(keep_cols, col_name)
-          }
-        }
-      }
-      
-      cols_to_keep <- c(target_col, keep_cols)
-      df_subset <- df[, cols_to_keep, drop = FALSE]
-      
-      na_per_row <- rowSums(is.na(df_subset))
-      df_clean <- df_subset[na_per_row < 4, ]
-      
-      for (col in keep_cols) {
-        if (sum(is.na(df_clean[[col]])) > 0) {
-          mean_val <- mean(df_clean[[col]], na.rm = TRUE)
-          df_clean[[col]][is.na(df_clean[[col]])] <- mean_val
-        }
-      }
-      
-      #cols_to_keep <- c(target_col, keep_cols)
-      #df_subset <- df[, cols_to_keep, drop = FALSE]
-      
-      # Drop rows with >= 7 NA
-      #na_per_row <- rowSums(is.na(df_subset))
-      #df_clean <- df_subset[na_per_row < 3, ]
-      
-      #write.table(
-        #df_clean, 
-        #"drop_50_and_4row_impute.tsv",
-        #sep = "\t", 
-       # row.names = FALSE, 
-       # quote = FALSE
-      #)
-      
-      
-      
-      result <- process_dataset(df, predictors = pred_cols, target_col = target_col, na_threshold = na_threshold)
-      processed_data(result$df)
+      result <- process_dataset(df, predictors = pred_cols, target_col = target_col, 
+                                na_threshold = input$na_threshold,
+                                impute_method = input$impute_method,
+                                impute_value = input$impute_value)
+      cols_to_keep <- c(target_col, result$keep_cols)
+      processed_data(result$df[, cols_to_keep, drop = FALSE])
       applied_predictors(result$keep_cols)
+      
+      # Update available choices based on processed data
+      available_cols <- setdiff(names(result$df), target_col)
+      
     } else {
       shinyalert("Error", "No data available. Please upload data and select target first.", type = "error")
       return()
     }
     
+    # Force reload table
+    data_preview_trigger(data_preview_trigger() + 1)
+    
+    # Update picker with columns that actually exist in processed data
     updatePickerInput(
       session,
       "predictors",
-      choices = setdiff(names(data_raw()), input$target_col),
-      selected = intersect(input$predictors, applied_predictors())
+      choices = available_cols,  # ← FIXED: Use processed data columns
+      selected = applied_predictors()  # ← FIXED: Select only the columns that survived preprocessing
     )
     
     kept <- length(applied_predictors())
-    dropped <- setdiff(input$predictors, applied_predictors())
+    dropped <- setdiff(pred_cols, applied_predictors())
     msg <- paste0("Applied ", kept, " predictor(s). Table refreshed.")
     if (length(dropped) > 0) msg <- paste0(msg, "\nDropped: ", paste(dropped, collapse = ", "))
     shinyalert("Applied", msg, type = "success")
@@ -1184,18 +1301,7 @@ server <- function(input, output, session) {
     )
   })
   
-  
-  output$data_preview <- renderDT({
-    req(processed_data())
-    datatable(
-      processed_data(),
-      options = list(
-        scrollX = TRUE, 
-        pageLength = 10,
-        lengthMenu = c(10,25,50,100,nrow(processed_data()))
-      )
-    )
-  })
+ 
   # Open column mapper with column selection
   observeEvent(input$open_column_mapper, {
     req(processed_data())
