@@ -23,9 +23,16 @@ ui <- fluidPage(
     tabPanel("Upload & Select Target",
              sidebarLayout(
                sidebarPanel(
+                 div(
+                   style = "background-color: #214785; padding: 10px 12px; margin: -10px 0px 8px 0px;",
+                   h4(
+                     style = "margin: 0; font-weight: bold; color: white;",
+                     "STEP 1: Upload Data"
+                   )
+                 ),
                  radioButtons(
                    "upload_mode",
-                   "Upload Mode:",
+                   "Mode:",
                    choices = c("Single File (Auto Split)" = "single",
                                "Separate Train & Test Files" = "dual"),
                    selected = "single"
@@ -33,14 +40,14 @@ ui <- fluidPage(
                  
                  conditionalPanel(
                    condition = "input.upload_mode == 'single'",
-                   fileInput("file", "Upload Data File (.csv / .tsv)",
+                   fileInput("file", "Data File (.csv / .tsv)",
                              accept = c(".csv", ".tsv")),
                    actionButton("load_example", "Load Example", 
                                 class = "btn btn-default", 
                                 style = "width: 100%; margin-top: -20px; margin-bottom: 10px; background-color: #6c757d; color: white;"),
                    actionButton("open_column_mapper", "Map Column Values", 
                                 class = "btn btn-info", 
-                                style = "width: 100%; margin-bottom: 10px;"),
+                                style = "width: 100%; margin-bottom: 10px; background-color:#e6b42c; border:none"),
                    helpText("Data will be split using the ratio in Model AUC Results tab.")
                  ),
                  
@@ -53,7 +60,13 @@ ui <- fluidPage(
                    helpText("Files must have identical columns."),
                  ),
                  
-                 
+                 div(
+                   style = "background-color: #214785; padding: 10px 12px; margin: -4px 0px 8px 0px;",
+                   h4(
+                     style = "margin: 0; font-weight: bold; color: white;",
+                     "STEP 2: Select Target & Predictors"
+                   )
+                 ),
                  # Target: selectizeInput (choices populated server-side)
                  selectizeInput(
                    "target_col",
@@ -81,18 +94,23 @@ ui <- fluidPage(
                  ),
                  
                  br(),
+                 div(
+                   style = "background-color: #214785; padding: 10px 12px; margin: -10px 0px 14px 0px;",
+                   h4(
+                     style = "margin: 0; font-weight: bold; color: white;",
+                     "STEP 3: Preprocessing Data"
+                   )
+                 ),
                  wellPanel(
                    style = "background-color: #f9f9f9; border: 1px solid #ddd;",
-                   h5(icon("cog"), "Preprocessing Settings"),
                    
                    sliderInput(
                      "na_threshold",
                      "NA Dropping Threshold:",
                      min = 0,
                      max = 1,
-                     value = 0.7,
-                     step = 0.05,
-                     post = "%"
+                     value = 0.25,
+                     step = 0.05
                    ),
                    helpText("Columns with NA proportion above this threshold will be dropped."),
                    
@@ -100,12 +118,21 @@ ui <- fluidPage(
                      "impute_method",
                      "Imputation Method:",
                      choices = c(
-                       "MICE (CART)" = "mice",
+                       "MICE - Predictive Mean Matching (pmm)" = "pmm",
+                       "MICE - Regression Trees (cart)" = "cart",
+                       "MICE - Random Forest (rf)" = "rf",
+                       "MICE - Weighted PMM (midastouch)" = "midastouch",
+                       "MICE - Random Sample" = "sample",
                        "Mean" = "mean",
                        "Median" = "median",
                        "Specific Value" = "value"
                      ),
-                     selected = "mice"
+                     selected = "cart"
+                   ),
+                   
+                   helpText(
+                     icon("info-circle"),
+                     "MICE methods work for all data types. Mean/Median only for numeric columns."
                    ),
                    
                    conditionalPanel(
@@ -119,14 +146,58 @@ ui <- fluidPage(
                    )
                  ),
             
-                 actionButton("apply_predictors", "Pre-process Data", 
-                              class = "btn btn-secondary", 
-                              style = "width: 100%;"),
+                 actionButton(
+                   "apply_predictors",
+                   "Pre-process Data",
+                   class = "btn btn-secondary",
+                   style = "width: 100%; background-color:#e6b42c; color: white;"
+                 ),
                  br(), br(),
                  
-  
+                 # Feature Selection Parameters Section
+                 div(
+                   style = "background-color: #214785; padding: 10px 12px; margin: -10px 0px 14px 0px;",
+                   h4(
+                     style = "margin: 0; font-weight: bold; color: white;",
+                     "STEP 4: Algorithm Parameters"
+                   )
+                 ),
+                 
+                 wellPanel(
+                   style = "background-color: #f0f8ff; border: 1px solid #0066cc;",
+                   
+                   h6(strong("Random Forest")),
+                   numericInput("rf_ntree", "Number of trees (ntree):", 
+                                value = 500, min = 1, step = 1),
+                   
+                   h6(strong("LASSO")),
+                   selectInput("lasso_lambda_choice", "Choose Lambda:",
+                               choices = c("lambda.min", "lambda.1se"), 
+                               selected = "lambda.min"),
+                   
+                   checkboxInput("lasso_speed_up", "Speed up LASSO (use features from other methods)", value = TRUE),
+                   helpText("When enabled, LASSO uses only features selected by Pearson/RF/Markov Blanket as input."),
+                   
+                   h6(strong("Markov Blanket")),
+                   numericInput("mb_alpha", "Significance Level (alpha):", 
+                                value = 0.15, min = 0.01, max = 0.5, step = 0.01),
+                 ),
+                 
+                 numericInput("topx", "Number of Top Features to Select:", 
+                              value = 15, min = 1, step = 1),
+                 #helpText("Select how many top features from each method to use."),
+                 
+                 checkboxInput("enable_jump_detection", "Enable auto-stop at score jump", value = FALSE),
+                 
+                 conditionalPanel(
+                   condition = "input.enable_jump_detection == true",
+                   numericInput("jump_threshold", "Jump Detection Threshold (fold change):", 
+                                value = 10, min = 2, max = 100, step = 1),
+                   helpText("Stop selecting features when score drops by this fold (e.g., 10x means stop when next score is 1/10th or less)")
+                 ),
                  br(),
-                 actionButton("run", "Run Feature Selection", 
+                 
+                 actionButton("run", "Run All Feature Selection Methods", 
                               class = "btn btn-primary",
                               style = "width: 100%;")
                ),
@@ -141,9 +212,9 @@ ui <- fluidPage(
                      id = "data_preview_tabs",
                      tabPanel("Processed Training Data", 
                               br(), 
-                              actionButton("recover_data_dual", "Recover Original Data", 
+                              actionButton("recover_data_dual", "↻ Recover", 
                                            class = "btn btn-warning", 
-                                           style = "margin-bottom: 10px;"),
+                                           style = "margin-bottom: 4px; background-color: #6c757d; border:none"),
                               withSpinner(DTOutput("train_preview"), type = 6)),
                      tabPanel("Uploaded Training Data", 
                               br(), 
@@ -160,9 +231,9 @@ ui <- fluidPage(
                      id = "single_data_tabs",
                      tabPanel("Processed Data", 
                               br(), 
-                              actionButton("recover_data", "Recover Original Data", 
+                              actionButton("recover_data", "↻ Recover", 
                                            class = "btn btn-warning", 
-                                           style = "margin-bottom: 10px;"),
+                                           style = "margin-bottom: 10px; background-color: #6c757d; border:none"),
                               withSpinner(DTOutput("data_preview"), type = 6)),
                      tabPanel("Uploaded Data", 
                               br(), 
@@ -195,8 +266,8 @@ ui <- fluidPage(
     
     tabPanel("Random Forest",
              h3("Random Forest Variable Importance"),
-             numericInput("rf_ntree", "Number of trees (ntree):", value = 500, min = 1, step = 1),
-             actionButton("run_rf", "Run Random Forest", class = "btn btn-primary"),
+             #numericInput("rf_ntree", "Number of trees (ntree):", value = 500, min = 1, step = 1),
+             #actionButton("run_rf", "Run Random Forest", class = "btn btn-primary"),
              br(), br(),
              
              # Side-by-side layout
@@ -225,10 +296,10 @@ ui <- fluidPage(
     
     tabPanel("LASSO",
              h3("LASSO Feature Selection"),
-             selectInput("lasso_lambda_choice", "Choose Lambda:",
-                         choices = c("lambda.min", "lambda.1se"), selected = "lambda.min"),
-             actionButton("run_lasso", "Run LASSO", class = "btn btn-primary"),
-             br(), br(),
+             #selectInput("lasso_lambda_choice", "Choose Lambda:",
+                         #choices = c("lambda.min", "lambda.1se"), selected = "lambda.min"),
+             #actionButton("run_lasso", "Run LASSO", class = "btn btn-primary"),
+             br(),
              tableOutput("debug_lasso"),
              br(),
              
@@ -248,7 +319,7 @@ ui <- fluidPage(
     
     
     tabPanel("Final Selection",
-             numericInput("topx", "Number of features you want to select:", value = 15, min = 1),
+             #numericInput("topx", "Number of features you want to select:", value = 15, min = 1),
              downloadButton("download_final_table", "Download Final Table",
                             style = "margin-bottom: 10px;"),
              DTOutput("final_table"),
@@ -350,6 +421,7 @@ ui <- fluidPage(
               tabsetPanel(
                 id = "metrics_tabs",
                 tabPanel("AUC", br(), DTOutput("auc_table")),
+                #tabPanel("95% CI (AUC)", br(), DTOutput("ci_table")),
                 tabPanel("MCC", br(), DTOutput("mcc_table")),
                 tabPanel("Recall", br(), DTOutput("recall_table")),
                 tabPanel("Precision", br(), DTOutput("precision_table")),
@@ -423,6 +495,39 @@ server <- function(input, output, session) {
   # Reactive value to hold data for mapper
   data_reactive <- reactiveVal(NULL)
   
+  select_features_with_jump <- function(scores, max_n = 15, enable_jump = FALSE, jump_fold = 10) {
+    # Sort scores descending
+    sorted_scores <- sort(scores, decreasing = TRUE)
+    
+    # Limit to top N first
+    n_to_check <- min(max_n, length(sorted_scores))
+    top_scores <- sorted_scores[1:n_to_check]
+    
+    # If jump detection disabled, return all top N
+    if (!enable_jump) {
+      return(names(top_scores))
+    }
+    
+    # Calculate ratios between consecutive scores
+    if (length(top_scores) < 2) {
+      return(names(top_scores))
+    }
+    
+    ratios <- top_scores[-length(top_scores)] / top_scores[-1]
+    
+    # Find first jump that exceeds threshold
+    jump_position <- which(ratios >= jump_fold)[1]
+    
+    # If jump found within top N, stop there; otherwise use all N
+    if (!is.na(jump_position)) {
+      cat("Jump detected at position", jump_position, "with ratio", round(ratios[jump_position], 2), "\n")
+      return(names(top_scores)[1:jump_position])
+    } else {
+      cat("No significant jump detected, using all", length(top_scores), "features\n")
+      return(names(top_scores))
+    }
+  }
+  
   lasso_trigger <- reactiveVal(0)
   data_preview_trigger <- reactiveVal(0)
   
@@ -435,6 +540,7 @@ server <- function(input, output, session) {
     shap_values = NULL,   
     cv_lasso = NULL,        
     df_lasso = NULL,
+    all_results = NULL,
     logistic_history = data.frame(
       Subset = character(),
       AUC = numeric(),
@@ -558,7 +664,7 @@ server <- function(input, output, session) {
   observeEvent(input$load_example, {
     req(input$upload_mode == "single")
     
-    df <- read.delim("TCGA.tsv", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
+    df <- read.delim("CCLE_0119.tsv", header = TRUE, sep = "\t", stringsAsFactors = FALSE)
     
     logi_cols <- sapply(df, is.logical)
     if (any(logi_cols)) df[, logi_cols] <- lapply(df[, logi_cols, drop = FALSE], as.integer)
@@ -575,8 +681,8 @@ server <- function(input, output, session) {
     applied_predictors(character(0))
     
     # Preselect target as "gender"
-    if ("gender" %in% names(df)) {
-      updateSelectizeInput(session, "target_col", choices = names(df), selected = "gender", server = TRUE)
+    if ("sex" %in% names(df)) {
+      updateSelectizeInput(session, "target_col", choices = names(df), selected = "sex", server = TRUE)
     } else {
       updateSelectizeInput(session, "target_col", choices = names(df), server = TRUE)
     }
@@ -585,7 +691,7 @@ server <- function(input, output, session) {
     
     # Preselect all predictors except PatientID and gender
     all_cols <- names(df)
-    exclude_cols <- c("PatientID", "gender", "Sample", "type", "AgeCutoff")
+    exclude_cols <- c("Genesets",	"sex",	"Xycopynumber",	"type_refined")
     preselected <- setdiff(all_cols, exclude_cols)
     
     updatePickerInput(
@@ -596,8 +702,8 @@ server <- function(input, output, session) {
     )
     
     shinyalert("Example Loaded", 
-               paste0("TCGA.tsv loaded successfully with ", nrow(df), " rows and ", ncol(df), " columns.\n\n",
-                      "Target preselected: gender\n",
+               paste0("CCLE loaded successfully with ", nrow(df), " rows and ", ncol(df), " columns.\n\n",
+                      "Target preselected: sex\n",
                       "Predictors preselected"), 
                type = "success", timer = 3000)
   })
@@ -1157,15 +1263,29 @@ server <- function(input, output, session) {
     cols_for_impute <- unique(c(keep_cols, target_col))
     cols_for_impute <- cols_for_impute[cols_for_impute %in% names(df)]
     
-    if (impute_method == "mice") {
-      # Use MICE (existing method)
+    if (impute_method %in% c("pmm", "cart", "rf", "midastouch", "sample")) {
+      # MICE methods
       df_imputed <- tryCatch({
-        complete(mice(df[, cols_for_impute, drop = FALSE], method = "cart", m = 1, printFlag = FALSE))
+        complete(mice(df[, cols_for_impute, drop = FALSE], 
+                      method = impute_method, 
+                      m = 1, 
+                      printFlag = FALSE))
       }, error = function(e) {
-        cat("MICE failed:", conditionMessage(e), "\n")
-        return(df[, cols_for_impute, drop = FALSE])
+        cat("MICE with method", impute_method, "failed:", conditionMessage(e), "\n")
+        cat("Falling back to pmm method...\n")
+        # Fallback to pmm if specified method fails
+        tryCatch({
+          complete(mice(df[, cols_for_impute, drop = FALSE], 
+                        method = "pmm", 
+                        m = 1, 
+                        printFlag = FALSE))
+        }, error = function(e2) {
+          cat("Fallback also failed. Returning original data.\n")
+          return(df[, cols_for_impute, drop = FALSE])
+        })
       })
       df[, cols_for_impute] <- df_imputed
+      cat("MICE imputation completed using method:", impute_method, "\n")
       
     } else if (impute_method == "mean") {
       # Use mean imputation
@@ -1247,13 +1367,25 @@ server <- function(input, output, session) {
     
     if (!is_binary_01) {
       shinyalert(
-        "Target Not Ready",
-        paste0(
+        title = "Target Not Ready",
+        text = paste0(
           "Target column must contain only 0 and 1 values before applying predictors.\n\n",
           "Current unique values: ", paste(target_col_values, collapse = ", "), "\n\n",
-          "Please use 'Map Column Values' button to map your target to binary 0/1 values."
+          "Click 'Map Values' to map your target to binary 0/1 values."
         ),
-        type = "error"
+        type = "error",
+        showCancelButton = TRUE,
+        confirmButtonText = "Map Values",
+        cancelButtonText = "Cancel",
+        callbackR = function(value) {
+          if (value) {
+            # Directly show the mapper modal for target column
+            # Small delay to ensure alert closes first
+            shinyjs::delay(100, {
+              mapper$showModal(input$target_col)
+            })
+          }
+        }
       )
       return()
     }
@@ -1408,7 +1540,22 @@ server <- function(input, output, session) {
   
   observeEvent(input$run, {
     if (is.null(input$target_col) || length(applied_predictors()) == 0) {
-      shinyalert("Missing inputs", "Please select target, apply mapping, and commit predictors before running.", type = "error")
+      shinyalert(
+        title = "Missing inputs",
+        text = "Please select target and pre-process data before running.\n\nClick 'Pre-process Data' to continue.",
+        type = "error",
+        showCancelButton = TRUE,
+        confirmButtonText = "Pre-process Data",
+        cancelButtonText = "Cancel",
+        callbackR = function(value) {
+          if (value) {
+            # Trigger the pre-process button click
+            shinyjs::delay(100, {
+              shinyjs::click("apply_predictors")
+            })
+          }
+        }
+      )
       return()
     }
     
@@ -1418,20 +1565,38 @@ server <- function(input, output, session) {
     
     target_col_values <- sort(unique(na.omit(df[[input$target_col]])))
     is_binary_01 <- all(target_col_values %in% c(0, 1)) && length(target_col_values) == 2
-    
     if (!is_binary_01) {
       shinyalert(
-        "Invalid Target",
-        paste0(
+        title = "Invalid Target",
+        text = paste0(
           "Target column must contain only 0 and 1 values.\n\n",
           "Current unique values: ", paste(target_col_values, collapse = ", "), "\n\n",
-          "Please use 'Map Column Values' button to map your target to binary 0/1 values."
+          "Click 'Map Values' to map your target to binary 0/1 values."
         ),
-        type = "error"
+        type = "error",
+        showCancelButton = TRUE,
+        confirmButtonText = "Map Values",
+        cancelButtonText = "Cancel",
+        callbackR = function(value) {
+          if (value) {
+            shinyjs::delay(100, {
+              mapper$showModal(input$target_col)
+            })
+          }
+        }
       )
       return()
     }
     
+    # Show single loading alert
+    shinyalert(
+      title = "Running All Feature Selection Methods...",
+      text = "Please wait. This includes: Pearson Correlation, Random Forest, Markov Blanket, and LASSO.",
+      type = "info",
+      showConfirmButton = FALSE,
+      timer = 0,
+      closeOnClickOutside = FALSE
+    )
     
     disable("run")
     on.exit(enable("run"), add = TRUE)
@@ -1440,9 +1605,9 @@ server <- function(input, output, session) {
     target <- df[[input$target_col]]
     predictors <- df[, applied_predictors(), drop = FALSE]
     
+    # ===== 1. PEARSON CORRELATION =====
     cor_vals <- sapply(names(predictors), function(col_name) {
       x <- predictors[[col_name]]
-      
       tryCatch({
         if (!is.numeric(x)) x <- as.numeric(as.character(x))
         cor(x, target, use = "complete.obs")
@@ -1453,9 +1618,36 @@ server <- function(input, output, session) {
     }, USE.NAMES = TRUE)
     
     cor_vals <- cor_vals[!is.na(cor_vals)]
-    cor_results(cor_vals[order(abs(cor_vals), decreasing = TRUE)])
+    sorted_cor <- cor_vals[order(abs(cor_vals), decreasing = TRUE)]
+    selected_cor <- select_features_with_jump(
+      sorted_cor, 
+      max_n = input$topx, 
+      enable_jump = input$enable_jump_detection,
+      jump_fold = input$jump_threshold
+    )
+    cor_results(sorted_cor[names(sorted_cor) %in% selected_cor])
     
-    # Markov Blanket
+    # ===== 2. RANDOM FOREST =====
+    predictors_rf <- predictors
+    predictors_rf[] <- lapply(predictors_rf, function(x) {
+      if (!is.numeric(x)) factor(x) else x
+    })
+    
+    subdata <- data.frame(target = target, predictors_rf)
+    rf_model <- rfsrc(target ~ ., data = subdata, na.action = "na.impute",
+                      importance = TRUE, ntree = input$rf_ntree)
+    
+    sorted_rf <- sort(rf_model$importance, decreasing = TRUE)
+    selected_rf <- select_features_with_jump(
+      sorted_rf,
+      max_n = input$topx,
+      enable_jump = input$enable_jump_detection,
+      jump_fold = input$jump_threshold
+    )
+    rf_results(sorted_rf[names(sorted_rf) %in% selected_rf])
+    rf_model_obj(rf_model)
+    
+    # ===== 3. MARKOV BLANKET =====
     safe_discretize <- function(vec, breaks) {
       vec <- as.numeric(vec)
       unique_vals <- unique(na.omit(vec))
@@ -1496,19 +1688,19 @@ server <- function(input, output, session) {
     colnames(mb_df)[1] <- input$target_col
     mb_df <- mb_df[sapply(mb_df, function(col) length(unique(col)) > 1)]
     
-    mb_direct <- tryCatch(learn.mb(mb_df, node = input$target_col, method = 'inter.iamb', alpha = 0.15),
+    mb_direct <- tryCatch(learn.mb(mb_df, node = input$target_col, method = 'inter.iamb', alpha = input$mb_alpha),
                           error = function(e) character(0))
     mb_indirect <- character(0)
     for (member in mb_direct) {
-      mb_member <- tryCatch(learn.mb(mb_df, node = member, method = 'inter.iamb', alpha = 0.15),
+      mb_member <- tryCatch(learn.mb(mb_df, node = member, method = 'inter.iamb', alpha = input$mb_alpha),
                             error = function(e) character(0))
       mb_indirect <- unique(c(mb_indirect, setdiff(mb_member, c(input$target_col, mb_direct))))
     }
     all_mb_features <- c(mb_direct, mb_indirect)
     mb_results(all_mb_features)
-    mb_completed(TRUE)  # Mark MB as completed
+    mb_completed(TRUE)
     
-    # Update MB table output
+    # Update MB table
     if (length(all_mb_features) > 0) {
       mb_result_df <- data.frame(
         Category = c(rep("Direct", length(mb_direct)), rep("Indirect", length(mb_indirect))),
@@ -1516,7 +1708,6 @@ server <- function(input, output, session) {
       )
       output$mb_table <- renderDT(datatable(mb_result_df))
     } else {
-      # Show message when no features found
       mb_result_df <- data.frame(
         Category = "No Features",
         Feature = "Markov Blanket found no relevant features"
@@ -1524,73 +1715,38 @@ server <- function(input, output, session) {
       output$mb_table <- renderDT(datatable(mb_result_df, options = list(dom = 't')))
     }
     
-    shinyalert("Done", "Feature selection finished successfully.", type = "success")
-  })
-  
-  # --- Run Random Forest ---
-  observeEvent(input$run_rf, {
-    req(input$target_col, length(applied_predictors()) > 0)
-    
-    shinyalert(
-      title = "Running Random Forest...",
-      text = "Please wait while the model is being trained.",
-      type = "info",
-      showConfirmButton = FALSE,
-      timer = 0,
-      closeOnClickOutside = FALSE
-    )
-    
-    df <- processed_data()
-    target <- df[[input$target_col]]
-    predictors <- df[, applied_predictors(), drop = FALSE]
-    
-    predictors[] <- lapply(predictors, function(x) {
-      if (!is.numeric(x)) factor(x) else x
-    })
-    
-    subdata <- data.frame(target = target, predictors)
-    rf_model <- rfsrc(target ~ ., data = subdata, na.action = "na.impute",
-                      importance = TRUE, ntree = input$rf_ntree)
-    
-    
-    rf_results(sort(rf_model$importance, decreasing = TRUE))
-    rf_model_obj(rf_model)
-  })
-  
-  observeEvent(input$run_lasso, {
-    message("=== RUN_LASSO: Button clicked ===")
-    req(input$target_col, length(applied_predictors()) > 0, mb_completed())
-    message("=== RUN_LASSO: req passed ===")
-    
-    shinyalert(
-      title = "Running LASSO...",
-      text = "Please wait while feature selection is being performed.",
-      type = "info",
-      showConfirmButton = FALSE,
-      timer = 0,
-      closeOnClickOutside = FALSE
-    )
-    
-    df <- processed_data()
-    message("=== RUN_LASSO: Data loaded: ", nrow(df), " rows ===")
-    
-    X <- df[, applied_predictors(), drop = FALSE]
-    y <- df[[input$target_col]]
-    
-    
-    # Check if we have enough data
-    if (nrow(X) < 10) {
-      message("=== RUN_LASSO: Not enough data, returning ===")
-      return()
+    # ===== 4. LASSO =====
+    # ===== 4. LASSO =====
+    # Determine which features to use based on speed-up checkbox
+    if (input$lasso_speed_up) {
+      # Get union of features from previous 3 methods
+      topx_cor <- names(cor_results())[1:min(input$topx, length(cor_results()))]
+      topx_rf <- names(rf_results())[1:min(input$topx, length(rf_results()))]
+      mb_features <- mb_results()
+      if (is.null(mb_features)) mb_features <- character(0)
+      
+      # Union of features from Pearson, RF, and Markov Blanket
+      combined_features <- unique(c(topx_cor, topx_rf, mb_features))
+      
+      # If no features from previous methods, fall back to all features
+      if (length(combined_features) == 0) {
+        combined_features <- applied_predictors()
+        cat("Warning: No features from previous methods, using all features for LASSO\n")
+      } else {
+        cat("Running LASSO on", length(combined_features), "features from previous methods (speed-up enabled)\n")
+      }
+    } else {
+      # Use all applied predictors
+      combined_features <- applied_predictors()
+      cat("Running LASSO on all", length(combined_features), "applied predictors (speed-up disabled)\n")
     }
     
-    # Convert to matrix
+    # Use the selected features as input to LASSO
+    X <- df[, combined_features, drop = FALSE]
+    y <- df[[input$target_col]]
     X <- as.matrix(X)
     
-    message("=== RUN_LASSO: Running cv.glmnet ===")
     cv.lasso <- cv.glmnet(X, y, alpha = 1)
-    message("=== RUN_LASSO: cv.glmnet complete ===")
-    
     coef_lasso <- coef(cv.lasso, s = input$lasso_lambda_choice)
     nonzero_features <- rownames(coef_lasso)[which(coef_lasso != 0)]
     nonzero_coef <- as.numeric(coef_lasso[which(coef_lasso != 0)])
@@ -1599,23 +1755,181 @@ server <- function(input, output, session) {
       Feature = nonzero_features[nonzero_features != "(Intercept)"],
       Coefficient = nonzero_coef[nonzero_features != "(Intercept)"]
     )
-    
     df_lasso <- df_lasso[order(-abs(df_lasso$Coefficient)), ]
     
-    message("=== RUN_LASSO: df_lasso created with ", nrow(df_lasso), " rows ===")
-    message("=== RUN_LASSO: First few features: ===")
-    print(head(df_lasso, 3))
+    # Apply jump detection to LASSO
+    lasso_scores <- setNames(abs(df_lasso$Coefficient), df_lasso$Feature)
+    selected_lasso <- select_features_with_jump(
+      lasso_scores,
+      max_n = input$topx,
+      enable_jump = input$enable_jump_detection,
+      jump_fold = input$jump_threshold
+    )
+    df_lasso_filtered <- df_lasso[df_lasso$Feature %in% selected_lasso, ]
     
-    message("=== RUN_LASSO: BEFORE storing ===")
     lasso_cv_model(cv.lasso)
-    lasso_result_df(df_lasso)
-    lasso_results(df_lasso$Feature)
-    message("=== RUN_LASSO: AFTER storing ===")
-    
+    lasso_result_df(df_lasso_filtered)
+    lasso_results(df_lasso_filtered$Feature)
     lasso_trigger(lasso_trigger() + 1)
-    message("=== RUN_LASSO: Trigger incremented to ", lasso_trigger(), " ===")
     
-    message("=== RUN_LASSO: Storage complete! ===")
+    shinyalert(
+      title = "Running Model Evaluation...",
+      text = "Feature selection complete. Now evaluating models with selected features.",
+      type = "info",
+      showConfirmButton = FALSE,
+      timer = 0,
+      closeOnClickOutside = FALSE
+    )
+    
+    #EVALUATE MODELS
+    # Get feature subsets
+    topx_cor <- names(cor_results())
+    topx_rf <- names(rf_results())
+    mb_features <- mb_results()
+    if (is.null(mb_features)) mb_features <- character(0)
+    lasso_features <- lasso_results()
+    
+    custom_subsets_list <- rv$custom_subsets
+    
+    # Run model evaluation
+    res <- train_auc_matrix_multi(
+      topx_cor,
+      topx_rf,
+      mb_features,
+      lasso_features,
+      df_clean = df,
+      target_col = input$target_col,
+      split_ratio = input$split_ratio,
+      xgb_eta = input$xgb_eta,
+      xgb_max_depth = input$xgb_max_depth,
+      rf_ntree = input$rf_ntree_model,
+      cv_folds = input$cv_folds,
+      custom_subsets = custom_subsets_list,
+      train_data = if(upload_mode() == "dual") processed_train() else NULL,  
+      test_data = if(upload_mode() == "dual") processed_test() else NULL    
+    )
+    
+    auc_results <- res$results
+    auc_results <- auc_results[auc_results$NumFeatures > 0, ]  
+    roc_data <- res$rocs
+    
+    rv$all_results <- auc_results
+    
+    # Update history for each model and subset
+    if (!is.null(auc_results) && nrow(auc_results) > 0) {
+      for (i in 1:nrow(auc_results)) {
+        # Logistic history
+        tryCatch({
+          new_log <- data.frame(
+            Subset = as.character(auc_results$Subset[i]),
+            AUC = as.numeric(auc_results$Logistic_AUC[i]),
+            split_ratio = input$split_ratio,
+            stringsAsFactors = FALSE
+          )
+          rv$logistic_history <- rbind(rv$logistic_history, new_log)
+        }, error = function(e) {
+          cat("ERROR creating logistic row:", e$message, "\n")
+        })
+        
+        # RF history
+        tryCatch({
+          new_rf <- data.frame(
+            Subset = as.character(auc_results$Subset[i]),
+            AUC = as.numeric(auc_results$RF_AUC[i]),
+            ntree = input$rf_ntree_model,
+            split_ratio = input$split_ratio,
+            stringsAsFactors = FALSE
+          )
+          rv$rf_history <- rbind(rv$rf_history, new_rf)
+        }, error = function(e) {
+          cat("ERROR creating RF row:", e$message, "\n")
+        })
+        
+        # XGBoost history
+        tryCatch({
+          new_xgb <- data.frame(
+            Subset = as.character(auc_results$Subset[i]),
+            AUC = as.numeric(auc_results$XGB_AUC[i]),
+            eta = input$xgb_eta,
+            max_depth = input$xgb_max_depth,
+            cv_folds = input$cv_folds,
+            split_ratio = input$split_ratio,
+            stringsAsFactors = FALSE
+          )
+          rv$xgb_history <- rbind(rv$xgb_history, new_xgb)
+        }, error = function(e) {
+          cat("ERROR creating XGBoost row:", e$message, "\n")
+        })
+      }
+    }
+    
+    rv$all_results <- auc_results
+    # Render all metric tables
+    output$auc_table <- renderDT({
+      datatable(
+        rv$all_results[, c("Subset", "NumFeatures", "Logistic_AUC", "Logistic_CI", "RF_AUC", "RF_CI", "XGB_AUC", "XGB_CI")],
+        selection = "single",
+        #class = 'compact',
+        options = list(pageLength = 5, scrollX = TRUE),
+        rownames = FALSE,
+        colnames = c("Subset", "NumFeatures", "Logistic","LR CI", "RF","RF CI", "XGBoost", "XG CI")
+      ) %>% formatRound(c('Logistic_AUC', 'RF_AUC', 'XGB_AUC'), 4)
+    })
+    
+    
+    output$mcc_table <- renderDT({
+      datatable(
+        rv$all_results[, c("Subset", "NumFeatures", "Logistic_MCC", "RF_MCC", "XGB_MCC")],
+        selection = "single",
+        options = list(pageLength = 5, scrollX = TRUE),
+        rownames = FALSE,
+        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
+      ) %>% formatRound(c('Logistic_MCC', 'RF_MCC', 'XGB_MCC'), 4)
+    })
+    
+    output$recall_table <- renderDT({
+      datatable(
+        rv$all_results[, c("Subset", "NumFeatures", "Logistic_Recall", "RF_Recall", "XGB_Recall")],
+        selection = "single",
+        options = list(pageLength = 5, scrollX = TRUE),
+        rownames = FALSE,
+        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
+      ) %>% formatRound(c('Logistic_Recall', 'RF_Recall', 'XGB_Recall'), 4)
+    })
+    
+    output$precision_table <- renderDT({
+      datatable(
+        rv$all_results[, c("Subset", "NumFeatures", "Logistic_Precision", "RF_Precision", "XGB_Precision")],
+        selection = "single",
+        options = list(pageLength = 5, scrollX = TRUE),
+        rownames = FALSE,
+        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
+      ) %>% formatRound(c('Logistic_Precision', 'RF_Precision', 'XGB_Precision'), 4)
+    })
+    
+    output$f1_table <- renderDT({
+      datatable(
+        rv$all_results[, c("Subset", "NumFeatures", "Logistic_F1", "RF_F1", "XGB_F1")],
+        selection = "single",
+        options = list(pageLength = 5, scrollX = TRUE),
+        rownames = FALSE,
+        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
+      ) %>% formatRound(c('Logistic_F1', 'RF_F1', 'XGB_F1'), 4)
+    })
+    
+    
+    # Store ROC data
+    rv$roc_data <- roc_data
+    
+    
+    # Close alert and show success
+    closeAlert()
+    shinyalert(
+      "Complete!", 
+      "Feature selection and model evaluation finished successfully", 
+      type = "success", 
+      timer = 4000
+    )
   })
   
   output$lasso_table <- renderDT({
@@ -1842,8 +2156,8 @@ server <- function(input, output, session) {
   final_selection <- reactive({
     req(cor_results(), rf_results(), mb_completed(), lasso_results(), input$topx)
     
-    topx_cor <- names(cor_results())[1:min(input$topx, length(cor_results()))]
-    topx_rf <- names(rf_results())[1:min(input$topx, length(rf_results()))]
+    topx_cor <- names(cor_results())
+    topx_rf <- names(rf_results())
     mb_features <- mb_results()
     if (is.null(mb_features)) mb_features <- character(0)
     lasso_features <- lasso_results()
@@ -1928,18 +2242,88 @@ server <- function(input, output, session) {
       return()
     }
     
+    # Check for duplicate names
+    if (input$custom_subset_name %in% names(rv$custom_subsets)) {
+      shinyalert("Duplicate Name", 
+                 paste0("A subset named '", input$custom_subset_name, "' already exists."), 
+                 type = "warning")
+      return()
+    }
+    
+    shinyalert(
+      title = "Evaluating Custom Subset...",
+      text = paste0("Running models for '", input$custom_subset_name, "'"),
+      type = "info",
+      showConfirmButton = FALSE,
+      timer = 0,
+      closeOnClickOutside = FALSE
+    )
+    
     # Store custom subset
     rv$custom_subsets[[input$custom_subset_name]] <- input$custom_subset_features
     
-    # Re-run models with the new custom subset included
-    run_models_with_params()
+    # Create list with ONLY the new subset
+    new_subset_list <- list()
+    new_subset_list[[input$custom_subset_name]] <- input$custom_subset_features
     
+    df <- processed_data()
+    target_col <- input$target_col
+    
+    # Run models ONLY for the new subset
+    res <- train_auc_matrix_multi(
+      topx_cor = character(0),
+      topx_rf = character(0),
+      mb_features = character(0),
+      lasso_features = character(0),
+      df_clean = df,
+      target_col = target_col,
+      split_ratio = input$split_ratio,
+      xgb_eta = input$xgb_eta,
+      xgb_max_depth = input$xgb_max_depth,
+      rf_ntree = input$rf_ntree_model,
+      cv_folds = input$cv_folds,
+      custom_subsets = new_subset_list,
+      train_data = if(upload_mode() == "dual") processed_train() else NULL,  
+      test_data = if(upload_mode() == "dual") processed_test() else NULL    
+    )
+    
+    new_results <- res$results
+    new_results <- new_results[new_results$NumFeatures > 0, ]  # FILTER EMPTY ROWS
+    new_roc <- res$rocs
+    
+    # Append new ROC data to existing
+    rv$roc_data[[input$custom_subset_name]] <- new_roc[[input$custom_subset_name]]
+    
+    # Remove old version if exists, then append new row
+    rv$all_results <- rv$all_results[rv$all_results$Subset != input$custom_subset_name, ]
+    rv$all_results <- rbind(rv$all_results, new_results)
+    
+    # Update history for new subset only
+    for (i in 1:nrow(new_results)) {
+      rv$logistic_history <- rbind(rv$logistic_history, 
+                                   data.frame(Subset = as.character(new_results$Subset[i]),
+                                              AUC = as.numeric(new_results$Logistic_AUC[i]),
+                                              split_ratio = input$split_ratio, stringsAsFactors = FALSE))
+      
+      rv$rf_history <- rbind(rv$rf_history, 
+                             data.frame(Subset = as.character(new_results$Subset[i]),
+                                        AUC = as.numeric(new_results$RF_AUC[i]),
+                                        ntree = input$rf_ntree_model,
+                                        split_ratio = input$split_ratio, stringsAsFactors = FALSE))
+      
+      rv$xgb_history <- rbind(rv$xgb_history, 
+                              data.frame(Subset = as.character(new_results$Subset[i]),
+                                         AUC = as.numeric(new_results$XGB_AUC[i]),
+                                         eta = input$xgb_eta, max_depth = input$xgb_max_depth,
+                                         cv_folds = input$cv_folds, split_ratio = input$split_ratio,
+                                         stringsAsFactors = FALSE))
+    }
+    
+    closeAlert()
     shinyalert("Custom Subset Added", 
-               paste0("Subset '", input$custom_subset_name, "' with ", 
-                      length(input$custom_subset_features), " features has been added and models are running."), 
+               paste0("Subset '", input$custom_subset_name, "' evaluated successfully."), 
                type = "success")
     
-    # Clear inputs
     updateTextInput(session, "custom_subset_name", value = "")
     updatePickerInput(session, "custom_subset_features", selected = character(0))
   })
@@ -1957,8 +2341,8 @@ server <- function(input, output, session) {
     )
     req(cor_results(), rf_results(), mb_completed(), lasso_results(), input$topx)
     
-    topx_cor <- names(cor_results())[1:min(input$topx, length(cor_results()))]
-    topx_rf <- names(rf_results())[1:min(input$topx, length(rf_results()))]
+    topx_cor <- names(cor_results())
+    topx_rf <- names(cor_results())
     mb_features <- mb_results()
     if (is.null(mb_features)) mb_features <- character(0)
     lasso_features <- lasso_results()
@@ -1986,7 +2370,10 @@ server <- function(input, output, session) {
     )
     
     auc_results <- res$results
+    auc_results <- auc_results[auc_results$NumFeatures > 0, ]  # FILTER EMPTY ROWS
     roc_data <- res$rocs
+    
+    rv$all_results <- auc_results  # UPDATE stored results
     
     # Update history for each model and subset (with debugging)
     if (!is.null(auc_results) && nrow(auc_results) > 0) {
@@ -2045,13 +2432,15 @@ server <- function(input, output, session) {
     # AUC Table
     output$auc_table <- renderDT({
       datatable(
-        auc_results[, c("Subset", "NumFeatures", "Logistic_AUC", "RF_AUC", "XGB_AUC")],
+        auc_results[, c("Subset", "NumFeatures", "Logistic_AUC", "Logistic_CI", "RF_AUC", "RF_CI", "XGB_AUC", "XGB_CI")],
         selection = "single",
+        #class = 'compact',
         options = list(pageLength = 5, scrollX = TRUE),
         rownames = FALSE,
-        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
+        colnames = c("Subset", "NumFeatures", "Logistic","LR CI", "RF","RF CI", "XGBoost", "XG CI")
       ) %>% formatRound(c('Logistic_AUC', 'RF_AUC', 'XGB_AUC'), 4)
     })
+    
     
     # MCC Table
     output$mcc_table <- renderDT({
@@ -2111,103 +2500,100 @@ server <- function(input, output, session) {
     )
   }
   
-  observeEvent(input$run_lasso, {
-    req(cor_results(), rf_results(), mb_completed(), lasso_results(), input$topx)
-    
-    topx_cor <- names(cor_results())[1:min(input$topx, length(cor_results()))]
-    topx_rf <- names(rf_results())[1:min(input$topx, length(rf_results()))]
-    mb_features <- mb_results()
-    if (is.null(mb_features)) mb_features <- character(0)
-    lasso_features <- lasso_results()
-    df <- processed_data()
-    target_col <- input$target_col
-    
-    custom_subsets_list <- rv$custom_subsets
-    
-    # Run models WITHOUT showing loading alert
-    res <- train_auc_matrix_multi(
-      topx_cor,
-      topx_rf,
-      mb_features,
-      lasso_features,
-      df_clean = df,
-      target_col = target_col,
-      split_ratio = input$split_ratio,
-      xgb_eta = input$xgb_eta,
-      xgb_max_depth = input$xgb_max_depth,
-      rf_ntree = input$rf_ntree_model,
-      cv_folds = input$cv_folds,
-      custom_subsets = custom_subsets_list,
-      train_data = if(upload_mode() == "dual") processed_train() else NULL,  # ADD THIS
-      test_data = if(upload_mode() == "dual") processed_test() else NULL     # ADD THIS
-    )
-    
-    auc_results <- res$results
-    roc_data <- res$rocs
-    
-    # Render all four tables (same as in run_models_with_params)
-    output$auc_table <- renderDT({
-      datatable(
-        auc_results[, c("Subset", "NumFeatures", "Logistic_AUC", "RF_AUC", "XGB_AUC")],
-        selection = "single",
-        options = list(pageLength = 5, scrollX = TRUE),
-        rownames = FALSE,
-        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
-      ) %>% formatRound(c('Logistic_AUC', 'RF_AUC', 'XGB_AUC'), 4)
-    })
-    
-    output$mcc_table <- renderDT({
-      datatable(
-        auc_results[, c("Subset", "NumFeatures", "Logistic_MCC", "RF_MCC", "XGB_MCC")],
-        selection = "single",
-        options = list(pageLength = 5, scrollX = TRUE),
-        rownames = FALSE,
-        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
-      ) %>% formatRound(c('Logistic_MCC', 'RF_MCC', 'XGB_MCC'), 4)
-    })
-    
-    # Recall Table
-    output$recall_table <- renderDT({
-      datatable(
-        auc_results[, c("Subset", "NumFeatures", "Logistic_Recall", "RF_Recall", "XGB_Recall")],
-        selection = "single",
-        options = list(pageLength = 5, scrollX = TRUE),
-        rownames = FALSE,
-        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
-      ) %>% formatRound(c('Logistic_Recall', 'RF_Recall', 'XGB_Recall'), 4)
-    })
-    
-    # Precision Table
-    output$precision_table <- renderDT({
-      datatable(
-        auc_results[, c("Subset", "NumFeatures", "Logistic_Precision", "RF_Precision", "XGB_Precision")],
-        selection = "single",
-        options = list(pageLength = 5, scrollX = TRUE),
-        rownames = FALSE,
-        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
-      ) %>% formatRound(c('Logistic_Precision', 'RF_Precision', 'XGB_Precision'), 4)
-    })
-    
-    # F1 Score Table
-    output$f1_table <- renderDT({
-      datatable(
-        auc_results[, c("Subset", "NumFeatures", "Logistic_F1", "RF_F1", "XGB_F1")],
-        selection = "single",
-        options = list(pageLength = 5, scrollX = TRUE),
-        rownames = FALSE,
-        colnames = c("Subset", "Number of Features", "Logistic", "RF", "XGBoost")
-      ) %>% formatRound(c('Logistic_F1', 'RF_F1', 'XGB_F1'), 4)
-    })
-    
-    rv$roc_data <- roc_data
-  })
   
   
   observeEvent(input$rerun_models, {
     run_models_with_params()
   })
   
-  
+  handle_auc_table_click <- function(info) {
+    req(info$row, info$col >= 2, rv$roc_data)
+    
+    auc_data <- rv$all_results
+    req(auc_data)
+    
+    if (info$row > nrow(auc_data)) {
+      shinyalert("Error", "Invalid row selection", type = "error")
+      return()
+    }
+    
+    subset_name <- auc_data$Subset[info$row]
+    
+    if (!subset_name %in% names(rv$roc_data)) {
+      shinyalert("No Data", 
+                 paste("No ROC data available for subset:", subset_name), 
+                 type = "warning")
+      return()
+    }
+    
+    roc_set <- rv$roc_data[[subset_name]]
+    
+    # AUC table column mapping (0-based indexing):
+    # 0=Subset, 1=NumFeatures, 2=Logistic_AUC, 3=Logistic_CI, 4=RF_AUC, 5=RF_CI, 6=XGB_AUC, 7=XGB_CI
+    model_name <- switch(
+      as.character(info$col),
+      "2" = "logistic",  # Logistic_AUC column
+      "3" = NULL,        # Logistic_CI - don't show plot
+      "4" = "rf",        # RF_AUC column
+      "5" = NULL,        # RF_CI - don't show plot
+      "6" = "xgb",       # XGB_AUC column
+      "7" = NULL,        # XGB_CI - don't show plot
+      NULL
+    )
+    
+    if (is.null(model_name)) return()  # Clicked on CI column, do nothing
+    
+    roc_obj <- roc_set[[model_name]]
+    req(roc_obj)
+    
+    rv$current_model_info <- list(
+      subset_name = subset_name,
+      model_name = model_name
+    )
+    rv$shap_values <- NULL
+    
+    output$roc_plot <- renderPlot({
+      final_auc <- auc(roc_obj)
+      all_coords <- coords(roc_obj, x = "all", ret = c("threshold", "sensitivity", "specificity"))
+      youden <- all_coords$sensitivity + all_coords$specificity - 1
+      best_index <- which.max(youden)
+      optimal_threshold <- all_coords$threshold[best_index]
+      optimal_sens <- all_coords$sensitivity[best_index]
+      optimal_spec <- all_coords$specificity[best_index]
+      
+      plot(
+        roc_obj,
+        legacy.axes = TRUE,
+        col = switch(model_name,
+                     "logistic" = "red",
+                     "rf"       = "blue",
+                     "xgb"      = "darkgreen",
+                     "black"),
+        lwd = 3,
+        main = paste("ROC Curve -", subset_name, "-", toupper(model_name))
+      )
+      
+      legend(
+        "bottomright",
+        legend = c(
+          sprintf("AUC = %.4f", final_auc),
+          sprintf("Optimal Threshold = %.4f", optimal_threshold)
+        ),
+        lty = c(1, NA),
+        pch = c(NA, 19),
+        lwd = c(3, NA),
+        col = c(
+          switch(model_name,
+                 "logistic" = "red",
+                 "rf"       = "blue",
+                 "xgb"      = "darkgreen",
+                 "black"),
+          "orange"
+        ),
+        bty = "n"
+      )
+    })
+  }
   
   # Handle clicks from any of the metric tables
   handle_table_click <- function(info) {
@@ -2363,7 +2749,7 @@ server <- function(input, output, session) {
   }
   
   # Apply handler to AUC and MCC tables only
-  observeEvent(input$auc_table_cell_clicked, { handle_table_click(input$auc_table_cell_clicked) })
+  observeEvent(input$auc_table_cell_clicked, { handle_auc_table_click(input$auc_table_cell_clicked) })
   observeEvent(input$mcc_table_cell_clicked, { handle_table_click(input$mcc_table_cell_clicked) })
   observeEvent(input$recall_table_cell_clicked, { handle_table_click(input$recall_table_cell_clicked) })
   observeEvent(input$precision_table_cell_clicked, { handle_table_click(input$precision_table_cell_clicked) })

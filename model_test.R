@@ -34,13 +34,18 @@ calculate_metrics <- function(roc_obj, actual) {
   # F1 Score
   f1 <- ifelse((precision + recall) == 0, 0, 2 * (precision * recall) / (precision + recall))
   
+  #Calculate 95% Confidence Interval for AUC
+  ci_obj <- ci.auc(roc_obj, conf.level = 0.95)
+  ci_string <- sprintf("%.4f - %.4f", ci_obj[1], ci_obj[3])
+  
   return(c(
     MCC = mcc,
     Sensitivity = coords_obj$sensitivity,
     Specificity = coords_obj$specificity,
     Recall = recall,
     Precision = precision,
-    F1 = f1
+    F1 = f1,
+    CI = ci_string
   ))
 }
 
@@ -89,16 +94,19 @@ train_auc_matrix_multi <- function(topx_cor, topx_rf, mb_features, lasso_feature
     Subset = character(),
     NumFeatures = numeric(),
     Logistic_AUC = numeric(),
+    Logistic_CI = character(),  
     Logistic_MCC = numeric(),
     Logistic_Recall = numeric(),
     Logistic_Precision = numeric(),
     Logistic_F1 = numeric(),
     RF_AUC = numeric(),
+    RF_CI = character(),
     RF_MCC = numeric(),
     RF_Recall = numeric(),
     RF_Precision = numeric(),
     RF_F1 = numeric(),
     XGB_AUC = numeric(),
+    XGB_CI = character(),
     XGB_MCC = numeric(),
     XGB_Recall = numeric(),
     XGB_Precision = numeric(),
@@ -116,20 +124,24 @@ train_auc_matrix_multi <- function(topx_cor, topx_rf, mb_features, lasso_feature
         Subset = name,
         NumFeatures = 0,
         Logistic_AUC = NA,
+        Logistic_CI = NA, 
         Logistic_MCC = NA,
         Logistic_Recall = NA,
         Logistic_Precision = NA,
         Logistic_F1 = NA,
         RF_AUC = NA,
+        RF_CI = NA,  
         RF_MCC = NA,
         RF_Recall = NA,
         RF_Precision = NA,
         RF_F1 = NA,
         XGB_AUC = NA,
+        XGB_CI = NA,  
         XGB_MCC = NA,
         XGB_Recall = NA,
         XGB_Precision = NA,
-        XGB_F1 = NA
+        XGB_F1 = NA,
+        stringsAsFactors = FALSE
       ))
       next
     }
@@ -154,6 +166,11 @@ train_auc_matrix_multi <- function(topx_cor, topx_rf, mb_features, lasso_feature
       train_X <- model.matrix(~ . - 1, data = train_X_raw)
       test_X <- model.matrix(~ . - 1, data = test_X_raw)
       
+      # Ensure they're matrices (safety check for single feature)
+      if (!is.matrix(train_X)) train_X <- as.matrix(train_X)
+      if (!is.matrix(test_X)) test_X <- as.matrix(test_X)
+      
+      
       # Calculate actual ratio for reference
       actual_ratio <- nrow(train_df_full) / (nrow(train_df_full) + nrow(test_df_full))
       cat("Using pre-split data | Train:", nrow(train_df_full), 
@@ -171,10 +188,13 @@ train_auc_matrix_multi <- function(topx_cor, topx_rf, mb_features, lasso_feature
       
       # Split data
       split <- sample.split(y, SplitRatio = split_ratio)
-      train_X <- X[split, ]
-      test_X  <- X[!split, ]
+      train_X <- X[split, , drop = FALSE]
+      test_X  <- X[!split, , drop = FALSE]
       train_y <- y[split]
       test_y  <- y[!split]
+      
+      if (!is.matrix(train_X)) train_X <- as.matrix(train_X)
+      if (!is.matrix(test_X)) test_X <- as.matrix(test_X)
     }
     
     # ============================
@@ -253,16 +273,19 @@ train_auc_matrix_multi <- function(topx_cor, topx_rf, mb_features, lasso_feature
       Subset = name,
       NumFeatures = length(feats),
       Logistic_AUC = log_auc,
+      Logistic_CI = log_metrics["CI"],
       Logistic_MCC = log_metrics["MCC"],
       Logistic_Recall = log_metrics["Recall"],
       Logistic_Precision = log_metrics["Precision"],
       Logistic_F1 = log_metrics["F1"],
       RF_AUC = rf_auc,
+      RF_CI = rf_metrics["CI"],
       RF_MCC = rf_metrics["MCC"],
       RF_Recall = rf_metrics["Recall"],
       RF_Precision = rf_metrics["Precision"],
       RF_F1 = rf_metrics["F1"],
       XGB_AUC = xgb_auc,
+      XGB_CI = xgb_metrics["CI"],  
       XGB_MCC = xgb_metrics["MCC"],
       XGB_Recall = xgb_metrics["Recall"],
       XGB_Precision = xgb_metrics["Precision"],
