@@ -8,6 +8,7 @@ library(glmnet)
 library(shinyWidgets)
 library(shinyalert)
 library(shinycssloaders)
+library(fastshap)
 
 source("model_test.R")
 source("column_mapper_module.R")
@@ -328,7 +329,7 @@ ui <- fluidPage(
     ),
     
     tabPanel(
-      "Model AUC Results",
+      "Model Evaluation",
       h3("AUC comparison and ROC curves"),
       fluidRow(
         # LEFT: parameter input with tabs
@@ -472,7 +473,73 @@ ui <- fluidPage(
           )
         )
       )
-    )
+    ),
+    
+    tabPanel("Tutorial",
+             fluidRow(
+               column(3,
+                      wellPanel(
+                        style = "background-color: #f0f8ff;",
+                        h4("Tutorial Topics", style = "text-align: center; color: #214785;"),
+                        hr(),
+                        actionButton("tutorial_upload", "Upload Data/Load Example", 
+                                     class = "btn btn-default", 
+                                     style = "width: 100%; margin-bottom: 5px; text-align: left;"),
+                        actionButton("tutorial_select", "Select Target/Predictors", 
+                                     class = "btn btn-default", 
+                                     style = "width: 100%; margin-bottom: 5px; text-align: left;"),
+                        actionButton("tutorial_map", "Map Column Values", 
+                                     class = "btn btn-default", 
+                                     style = "width: 100%; margin-bottom: 5px; text-align: left;"),
+                        actionButton("tutorial_preprocess", "Pre-process Data", 
+                                     class = "btn btn-default", 
+                                     style = "width: 100%; margin-bottom: 5px; text-align: left;"),
+                        actionButton("tutorial_params", "Select Algo Parameters & Run", 
+                                     class = "btn btn-default", 
+                                     style = "width: 100%; margin-bottom: 5px; text-align: left;"),
+                        actionButton("tutorial_results", "View Results", 
+                                     class = "btn btn-default", 
+                                     style = "width: 100%; margin-bottom: 5px; text-align: left;"),
+                        
+                        div(
+                          style = "margin-bottom: 5px;",
+                          actionButton("tutorial_model_eval_label", 
+                                       "Model Evaluation", 
+                                       class = "btn btn-default", 
+                                       style = "width: 100%; text-align: left; margin-bottom: 5px;")
+                        ),
+                        
+                        div(
+                          id = "model_eval_subtopics",
+                          style = "margin-left: 20px;",
+                          actionButton("tutorial_roc_shap", "Show ROC & Calculate SHAP", 
+                                       class = "btn btn-link", 
+                                       style = "width: 100%; margin-bottom: 3px; text-align: left; font-size: 13px; padding-left: 10px;"),
+                          actionButton("tutorial_custom", "Custom Subset", 
+                                       class = "btn btn-link", 
+                                       style = "width: 100%; margin-bottom: 3px; text-align: left; font-size: 13px; padding-left: 10px;"),
+                          actionButton("tutorial_model_params", "Model Parameters", 
+                                       class = "btn btn-link", 
+                                       style = "width: 100%; margin-bottom: 3px; text-align: left; font-size: 13px; padding-left: 10px;")
+                        )
+                      )
+               ),
+               column(6,
+                      wellPanel(
+                        h4("Tutorial Video", style = "text-align: center; background-color: #e8e8e8; padding: 10px;"),
+                        uiOutput("tutorial_help_text"),
+                        uiOutput("tutorial_video")
+                      )
+               ),
+               column(3,
+                      wellPanel(
+                        h4("Helpful Information", style = "text-align: center; color: #214785;"),
+                        hr(),
+                        uiOutput("tutorial_info_text")
+                      )
+               )
+             )
+    ),
     
     
     
@@ -494,6 +561,237 @@ server <- function(input, output, session) {
   target_unique_values <- reactiveVal(NULL)
   # Reactive value to hold data for mapper
   data_reactive <- reactiveVal(NULL)
+
+  
+  # Tutorial System
+  tutorial_played <- reactiveVal(0)
+  
+  output$tutorial_help_text <- renderUI({
+    if (tutorial_played() == 0) {
+      h3(HTML("<b>← Click on a topic to the left to view a tutorial video</b>"), 
+         style="text-align:center; color: #666; padding: 100px 20px;")
+    } else {
+      NULL
+    }
+  })
+  
+  # Tutorial button observers
+  observeEvent(input$tutorial_upload, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/tCDiMafvAYg?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("Mode Selection:")),
+        p("• Single File Mode: Upload one file, split ratio adjustable in Model Evaluation tab (default 0.8 = 80% training, 20% testing, randomly selected)"),
+        p("• Dual File Mode: Upload separate training and testing files, uses all data from each file"),
+        br(),
+        p(strong("Example Data:")),
+        p("Gene expression features predicting gender of cancer cell lines from Cancer Cell Line Encyclopedia (CCLE) [PMID: 31068700]"),
+        br(),
+        p(strong("Supported Formats:")),
+        p("CSV, TSV files")
+      )
+    })
+  })
+  
+  observeEvent(input$tutorial_select, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/a5rtQ5Yrd10?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("Target Column:")),
+        p("Select the outcome variable you want to predict (must be binary 0/1 for classification)"),
+        br(),
+        p(strong("Predictor Columns:")),
+        p("Select multiple features to use for prediction"),
+        br(),
+        p(strong("Note:")),
+        p("Use 'Map Column Values' if target is not already binary (0/1)")
+      )
+    })
+  })
+  
+  observeEvent(input$tutorial_map, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/en17Loq4N3w?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("Mapping Methods:")),
+        p(strong("1. Value-to-Value Mapping")),
+        p("Map specific categorical values to 0 or 1"),
+        p(strong("2. Threshold (Greater Than)")),
+        p("Values > threshold → 1, others → 0"),
+        p(strong("3. Threshold (Less Than)")),
+        p("Values < threshold → 1, others → 0"),
+        p(strong("4. Threshold (Greater or Equal)")),
+        p("Values ≥ threshold → 1, others → 0"),
+        p(strong("5. Threshold (Less or Equal)")),
+        p("Values ≤ threshold → 1, others → 0"),
+        p(strong("6. Range Mapping")),
+        p("Map continuous ranges to binary values"),
+        br(),
+        p(strong("Use Cases:")),
+        p("• Convert non-binary target to 0/1"),
+        p("• Convert categorical/factor variables to numerical")
+      )
+    })
+  })
+  
+  observeEvent(input$tutorial_preprocess, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/tAULlwPzJys?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("NA Dropping Threshold:")),
+        p("Features with NA proportion ≥ threshold will be dropped (default 0.25 = 25%)"),
+        br(),
+        p(strong("Imputation Methods:")),
+        p(strong("MICE Package:")),
+        p("• pmm (Predictive Mean Matching)"),
+        p("• cart (Regression Trees) - default"),
+        p("• rf (Random Forest)"),
+        p("• midastouch (Weighted PMM)"),
+        p("• sample (Random Sample)"),
+        br(),
+        p(strong("Simple Methods:")),
+        p("• Mean imputation"),
+        p("• Median imputation"),
+        p("• Specific value imputation"),
+        br(),
+        p(strong("Process:")),
+        p("1. Drop high-NA columns"),
+        p("2. Impute remaining missing values"),
+        p("3. Click 'Pre-process Data' to apply")
+      )
+    })
+  })
+  
+  observeEvent(input$tutorial_params, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/PxcRFqNNntE?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("Random Forest:")),
+        p("• ntree: Number of trees (default 500)"),
+        p(strong("LASSO:")),
+        p("• Lambda: lambda.min or lambda.1se"),
+        p("• Speed up: Uses only overlapping top features from Pearson/RF/Markov Blanket as input to LASSO for faster computation"),
+        p(strong("Markov Blanket:")),
+        p("• Alpha: Significance level (default 0.15)"),
+        p(strong("Top Features:")),
+        p("Number of features to select from each method (default 15)"),
+        p(strong("Jump Detection:")),
+        p("Auto-stop when feature importance drops significantly"),
+        p("• Example: 10x threshold means stop when next score ≤ 1/10th of previous"),
+        p("• In video: RF stopped at 2 features because 3rd feature had importance < 1/5 of 2nd feature")
+      )
+    })
+  })
+  
+  observeEvent(input$tutorial_results, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/c6d1THCVg3w?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("Four Feature Selection Methods:")),
+        br(),
+        p(strong("1. Pearson Correlation")),
+        p("• Higher absolute correlation = stronger relationship"),
+        br(),
+        p(strong("2. Random Forest")),
+        p("• Shows which features contribute most to predictions"),
+        br(),
+        p(strong("3. Markov Blanket")),
+        p("• Direct: Directly related to target"),
+        p("• Indirect: Directly related to direct features"),
+        br(),
+        p(strong("4. LASSO")),
+        p("• L1-regularized feature selection"),
+        p("• Automatically selects sparse feature set"),
+        p("• Non-zero coefficients indicate selected features"),
+        br(),
+        p("Navigate through tabs to view each method's results")
+      )
+    })
+  })
+  
+
+  observeEvent(input$tutorial_roc_shap, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/jiLJ5xkPDb8?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("ROC Curve:")),
+        p("• Click any cell in metrics table to view ROC curve"),
+        br(),
+        p(strong("SHAP Values:")),
+        p("• Click 'Calculate SHAP' after selecting a model"),
+        p("• Explains individual feature contribution to predictions")
+      )
+    })
+  })
+  
+  observeEvent(input$tutorial_custom, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/f6kiSRxxNt0?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("Purpose:")),
+        p("Create and evaluate your own feature combination"),
+        br(),
+        p(strong("Steps:")),
+        p("1. Enter a new subset name"),
+        p("2. Select features from dropdown (multi-select)"),
+        p("3. Click 'Add Custom Subset'"),
+        br(),
+        p(strong("What Happens:")),
+        p("• App trains 3 models (Logistic, RF, XGBoost) on your custom feature set"),
+        p("• Results added to metrics tables"),
+        p("• Can compare performance against algorithm-selected subsets"),
+        p("• ROC curve and SHAP available after training")
+      )
+    })
+  })
+  
+  observeEvent(input$tutorial_model_params, {
+    tutorial_played(1)
+    output$tutorial_video <- renderUI({
+      HTML('<iframe width="100%" height="400px" src="//www.youtube.com/embed/9GJcIekmu6g?rel=0&autoplay=1&mute=1" frameborder="0" allowfullscreen></iframe>')
+    })
+    output$tutorial_info_text <- renderUI({
+      div(
+        p(strong("General Parameters:")),
+        p("• Split Ratio: Training proportion (0.5-0.95, default 0.8)"),
+        p("  - Only for Single File Mode"),
+        p("  - Dual File Mode uses uploaded splits"),
+        p("• CV Folds: Cross-validation folds (2-20, default 5)"),
+        br(),
+        p(strong("Performance History:")),
+        p("View best parameter combinations for each model in tabs above"),
+        br(),
+        p(strong("Workflow:")),
+        p("1. Adjust parameters"),
+        p("2. Click 'Run Models with Current Parameters'"),
+        p("3. Check history tables to find optimal settings")
+      )
+    })
+  })
   
   select_features_with_jump <- function(scores, max_n = 15, enable_jump = FALSE, jump_fold = 10) {
     # Sort scores descending
@@ -2626,10 +2924,10 @@ server <- function(input, output, session) {
       }
       
       subsets <- list(
-        `4_algos` = all_feats[sapply(all_feats, count_in_lists) == 4],
-        `3_algos` = all_feats[sapply(all_feats, count_in_lists) == 3],
-        `2_algos` = all_feats[sapply(all_feats, count_in_lists) == 2],
-        `1_algo`  = all_feats[sapply(all_feats, count_in_lists) == 1],
+        `selected_by_4_algos` = all_feats[sapply(all_feats, count_in_lists) == 4],
+        `selected_by_3_algos` = all_feats[sapply(all_feats, count_in_lists) == 3],
+        `selected_by_2_algos` = all_feats[sapply(all_feats, count_in_lists) == 2],
+        `selected_by_1_algo`  = all_feats[sapply(all_feats, count_in_lists) == 1],
         `All_Features` = all_feats
       )
       
@@ -2798,10 +3096,10 @@ server <- function(input, output, session) {
     }
     
     subsets <- list(
-      `4_algos` = all_feats[sapply(all_feats, count_in_lists) == 4],
-      `3_algos` = all_feats[sapply(all_feats, count_in_lists) == 3],
-      `2_algos` = all_feats[sapply(all_feats, count_in_lists) == 2],
-      `1_algo`  = all_feats[sapply(all_feats, count_in_lists) == 1],
+      `selected_by_4_algos` = all_feats[sapply(all_feats, count_in_lists) == 4],
+      `selected_by_3_algos` = all_feats[sapply(all_feats, count_in_lists) == 3],
+      `selected_by_2_algos` = all_feats[sapply(all_feats, count_in_lists) == 2],
+      `selected_by_1_algo`  = all_feats[sapply(all_feats, count_in_lists) == 1],
       `All_Features` = all_feats
     )
     
@@ -2854,8 +3152,7 @@ server <- function(input, output, session) {
     X_train <- as.matrix(X_train)
     
     tryCatch({
-      library(fastshap)
-      
+
       # Create prediction wrapper based on model type
       if (model_name == "logistic") {
         model <- glm(y_train ~ ., data = data.frame(y_train, X_train), family = binomial)
@@ -2885,7 +3182,7 @@ server <- function(input, output, session) {
       }
       
       # Calculate SHAP values
-      n_sample <- min(20, nrow(X_train))
+      n_sample <- min(150, nrow(X_train))
       sample_idx <- sample(nrow(X_train), n_sample)
       
       shap_values <- explain(
